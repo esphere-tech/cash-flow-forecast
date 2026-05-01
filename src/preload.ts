@@ -1,1 +1,5 @@
-// Preload intentionally left minimal until renderer-facing APIs are needed.
+import { contextBridge, ipcRenderer } from 'electron';
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+});

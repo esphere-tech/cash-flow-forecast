@@ -46,7 +46,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </NavLink>
         </nav>
 
-        {/* User + Logout */}
+        {/* User + Logout + Version */}
         <div className="px-3 py-4 border-t border-slate-700">
           <p className="px-4 py-1 text-xs text-slate-500 truncate">{user?.email}</p>
           <button
@@ -56,6 +56,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <LogOut className="w-4 h-4" />
             Logout
           </button>
+          {__APP_VERSION__ && (
+            <p className="px-4 pt-3 text-xs text-slate-600">v{__APP_VERSION__}</p>
+          )}
         </div>
       </aside>
 
