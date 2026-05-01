@@ -1,7 +1,7 @@
 {
   "name": "cash-flow-forecast",
   "productName": "cash-flow-forecast",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Simple cash flow management tool focused on 13-week forecasting, cash visibility, and identifying cash leaks.",
   "main": ".vite/build/main.js",
   "private": true,
