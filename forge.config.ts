@@ -17,7 +17,7 @@ const publishers = githubToken
           name: 'cash-flow-forecast',
         },
         prerelease: false,
-        draft: true,
+        draft: false, // for public repositories, you can set this to `true` to create a draft release, which allows you to review the release before publishing it
       }),
     ]
   : [];
