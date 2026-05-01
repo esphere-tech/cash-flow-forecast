@@ -1,10 +1,21 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
+import { updateElectronApp, UpdateSourceType } from 'update-electron-app';
 
 if (started) {
   app.quit();
 }
+
+// Check for updates on startup (only runs in packaged app, ignored in dev)
+updateElectronApp({
+  updateSource: {
+    type: UpdateSourceType.ElectronPublicUpdateService,
+    repo: 'esphere-tech/cash-flow-forecast',
+  },
+  updateInterval: '1 hour',
+  notifyUser: true,
+});
 
 const createWindow = () => {
   const mainWindow = new BrowserWindow({
