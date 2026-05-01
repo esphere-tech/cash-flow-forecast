@@ -329,8 +329,8 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {entries.map(entry => (
-                  <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
+                {entries.map((entry, i) => (
+                  <tr key={entry.id ?? i} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 text-slate-600 whitespace-nowrap">{fmtDate(entry.date)}</td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${

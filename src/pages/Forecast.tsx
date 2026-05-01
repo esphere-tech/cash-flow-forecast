@@ -8,10 +8,6 @@ const STARTING_CASH_KEY = 'cff_startingCash';
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 
-function extractForecast(data: { forecast: ForecastWeek[] } | ForecastWeek[]): ForecastWeek[] {
-  return Array.isArray(data) ? data : data.forecast;
-}
-
 export default function Forecast() {
   const [startingCash, setStartingCash] = useState<string>(
     () => localStorage.getItem(STARTING_CASH_KEY) ?? ''
@@ -30,8 +26,7 @@ export default function Forecast() {
     setError('');
     setLoading(true);
     try {
-      const data = await forecastApi.get(val);
-      const weeks = extractForecast(data);
+      const weeks = await forecastApi.get(val);
       setForecast(weeks);
       setGenerated(true);
       localStorage.setItem(STARTING_CASH_KEY, String(val));
@@ -42,9 +37,10 @@ export default function Forecast() {
     }
   };
 
-  const firstDeficitWeek = forecast.find(w => w.warning);
-  const lowestBalance = forecast.length > 0
-    ? forecast.reduce((min, w) => w.closing < min ? w.closing : min, forecast[0].closing)
+  const safeForecast = forecast ?? [];
+  const firstDeficitWeek = safeForecast.find(w => w.warning);
+  const lowestBalance = safeForecast.length > 0
+    ? safeForecast.reduce((min, w) => w.closing < min ? w.closing : min, safeForecast[0].closing)
     : null;
 
   return (
@@ -90,7 +86,7 @@ export default function Forecast() {
       </div>
 
       {/* Insights */}
-      {generated && forecast.length > 0 && (
+      {generated && safeForecast.length > 0 && (
         <div className="grid grid-cols-2 gap-4 mb-6">
           <div className={`rounded-xl border shadow-sm p-5 ${
             firstDeficitWeek
@@ -141,7 +137,7 @@ export default function Forecast() {
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-800">Weekly Projection</h2>
-            {forecast.some(w => w.warning) && (
+            {safeForecast.some(w => w.warning) && (
               <span className="flex items-center gap-1.5 text-xs font-medium text-red-600 bg-red-50 px-2.5 py-1 rounded-full">
                 <AlertTriangle className="w-3 h-3" />
                 Cash deficit weeks highlighted
@@ -149,7 +145,7 @@ export default function Forecast() {
             )}
           </div>
 
-          {forecast.length === 0 ? (
+          {safeForecast.length === 0 ? (
             <div className="px-6 py-16 text-center">
               <p className="text-sm text-slate-500">No forecast data returned. Add some entries first.</p>
             </div>
@@ -167,7 +163,7 @@ export default function Forecast() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {forecast.map(week => (
+                  {safeForecast.map(week => (
                     <tr
                       key={week.week}
                       className={week.warning ? 'bg-red-50' : 'hover:bg-slate-50 transition-colors'}
