@@ -27,6 +27,7 @@ const config: ForgeConfig = {
     asar: true,
     name: 'CashFlowForecast',
     executableName: 'cash-flow-forecast',
+    icon: 'assets/icon',
   },
   publishers,
   rebuildConfig: {},
