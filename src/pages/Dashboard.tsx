@@ -1,483 +1,407 @@
-import React, { useState, useEffect, FormEvent } from 'react';
-import { Plus, Trash2, Pencil, X, Loader2, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
-import { Entry, EntryData } from '../types';
+import React, { useState, useEffect } from 'react';
+import { TrendingUp, TrendingDown, DollarSign, Wallet, Clock } from 'lucide-react';
+import { Entry } from '../types';
 import { entriesApi } from '../services/api';
 
 const STARTING_CASH_KEY = 'cff_startingCash';
-
-const CATEGORIES = [
-  'Sales', 'Investment', 'Loan', 'Salary', 'Rent', 'Utilities',
-  'Supplies', 'Marketing', 'Payroll', 'Tax', 'Other',
-];
+const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 const fmt = (n: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+
+const fmtFull = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-function emptyForm(): EntryData {
-  return { type: 'inflow', amount: 0, date: '', category: '', description: '' };
+function getMonthKey(dateStr: string) {
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}-${d.getMonth()}`;
 }
 
+function getLastMonths(n: number) {
+  const now = new Date();
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (n - 1 - i), 1);
+    return { key: `${d.getFullYear()}-${d.getMonth()}`, label: MONTH_LABELS[d.getMonth()] };
+  });
+}
+
+function niceMax(v: number): number {
+  if (v <= 0) return 1000;
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  return Math.ceil(v / mag) * mag;
+}
+
+// ─── Bar Chart ────────────────────────────────────────────────────────────────
+interface MonthData { label: string; inflow: number; outflow: number }
+
+function BarChart({ data }: { data: MonthData[] }) {
+  const VW = 520, VH = 200, PL = 56, PR = 12, PT = 16, PB = 36;
+  const plotW = VW - PL - PR;
+  const plotH = VH - PT - PB;
+
+  const allVals = data.flatMap(d => [d.inflow, d.outflow]);
+  const maxVal = niceMax(Math.max(...allVals, 1));
+  const ticks = Array.from({ length: 5 }, (_, i) => (maxVal / 4) * i);
+
+  const gW = plotW / data.length;
+  const bW = Math.floor(gW * 0.27);
+
+  const toY = (v: number) => PT + plotH - (v / maxVal) * plotH;
+
+  return (
+    <svg viewBox={`0 0 ${VW} ${VH}`} className="w-full h-auto">
+      {/* Grid lines + Y-axis labels */}
+      {ticks.map((t, i) => (
+        <g key={i}>
+          <line
+            x1={PL} y1={toY(t)} x2={PL + plotW} y2={toY(t)}
+            stroke={i === 0 ? '#e2e8f0' : '#f1f5f9'} strokeWidth="1"
+          />
+          <text x={PL - 7} y={toY(t) + 4} textAnchor="end" fontSize="9" fill="#94a3b8">
+            {t >= 1000 ? `$${(t / 1000).toFixed(0)}k` : `$${Math.round(t)}`}
+          </text>
+        </g>
+      ))}
+
+      {/* Bars */}
+      {data.map((d, i) => {
+        const pairW = bW * 2 + 3;
+        const x = PL + i * gW + (gW - pairW) / 2;
+        const inflowH = Math.max((d.inflow / maxVal) * plotH, d.inflow > 0 ? 2 : 0);
+        const outflowH = Math.max((d.outflow / maxVal) * plotH, d.outflow > 0 ? 2 : 0);
+        return (
+          <g key={d.label}>
+            <rect x={x}          y={toY(d.inflow)}  width={bW} height={inflowH}  fill="#10b981" rx="2" opacity="0.88" />
+            <rect x={x + bW + 3} y={toY(d.outflow)} width={bW} height={outflowH} fill="#f43f5e" rx="2" opacity="0.88" />
+            <text x={PL + i * gW + gW / 2} y={VH - 9} textAnchor="middle" fontSize="9.5" fill="#94a3b8">
+              {d.label}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Axes */}
+      <line x1={PL} y1={PT}        x2={PL}        y2={PT + plotH} stroke="#e2e8f0" strokeWidth="1" />
+      <line x1={PL} y1={PT + plotH} x2={PL + plotW} y2={PT + plotH} stroke="#e2e8f0" strokeWidth="1" />
+    </svg>
+  );
+}
+
+// ─── Net Cash Sparkline ───────────────────────────────────────────────────────
+function Sparkline({ entries, startingCash }: { entries: Entry[]; startingCash: number }) {
+  const sorted = [...entries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  if (sorted.length < 2) return null;
+
+  const points: number[] = [];
+  let running = startingCash;
+  sorted.forEach(e => {
+    running += e.type === 'inflow' ? e.amount : -e.amount;
+    points.push(running);
+  });
+
+  const VW = 160, VH = 48, PAD = 4;
+  const minV = Math.min(...points);
+  const maxV = Math.max(...points);
+  const range = maxV - minV || 1;
+  const toX = (i: number) => PAD + (i / (points.length - 1)) * (VW - PAD * 2);
+  const toY = (v: number) => PAD + (1 - (v - minV) / range) * (VH - PAD * 2);
+
+  const polyline = points.map((v, i) => `${toX(i)},${toY(v)}`).join(' ');
+  const areaPath = `M${toX(0)},${VH} ` +
+    points.map((v, i) => `L${toX(i)},${toY(v)}`).join(' ') +
+    ` L${toX(points.length - 1)},${VH} Z`;
+
+  const lastVal = points[points.length - 1];
+  const isUp = lastVal >= points[0];
+
+  return (
+    <svg viewBox={`0 0 ${VW} ${VH}`} className="w-32 h-10">
+      <defs>
+        <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={isUp ? '#10b981' : '#f43f5e'} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={isUp ? '#10b981' : '#f43f5e'} stopOpacity="0.0" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill="url(#sparkGrad)" />
+      <polyline points={polyline} fill="none" stroke={isUp ? '#10b981' : '#f43f5e'} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ─── Summary Card ─────────────────────────────────────────────────────────────
+interface CardProps {
+  label: string;
+  value: string;
+  sub?: string;
+  icon: React.ReactNode;
+  iconBg: string;
+  iconColor: string;
+  accent: string;
+  valueColor?: string;
+}
+
+function SummaryCard({ label, value, sub, icon, iconBg, iconColor, accent, valueColor = 'text-slate-900' }: CardProps) {
+  return (
+    <div className={`bg-white rounded-xl border border-slate-100 shadow-sm p-5 border-l-4 ${accent} hover:shadow-md transition-shadow`}>
+      <div className="flex items-start justify-between mb-3">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
+        <div className={`p-2 rounded-lg ${iconBg} ${iconColor} flex-shrink-0`}>{icon}</div>
+      </div>
+      <p className={`text-2xl font-bold ${valueColor} leading-none`}>{value}</p>
+      {sub && <p className="text-xs text-slate-400 mt-2">{sub}</p>}
+    </div>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
-  // Starting cash
-  const [startingCash, setStartingCash] = useState<string>(
-    () => localStorage.getItem(STARTING_CASH_KEY) ?? ''
-  );
-
-  // Add entry form
-  const [form, setForm] = useState<EntryData>(emptyForm());
-  const [formError, setFormError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  // Edit modal
-  const [editEntry, setEditEntry] = useState<Entry | null>(null);
-  const [editForm, setEditForm] = useState<EntryData>(emptyForm());
-  const [editError, setEditError] = useState('');
-  const [editSubmitting, setEditSubmitting] = useState(false);
-
-  // Delete
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const startingCash = parseFloat(localStorage.getItem(STARTING_CASH_KEY) ?? '0') || 0;
 
   useEffect(() => {
-    loadEntries();
+    entriesApi.getAll()
+      .then(data => setEntries(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  const loadEntries = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await entriesApi.getAll();
-      setEntries(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load entries.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveStartingCash = () => {
-    const val = parseFloat(startingCash);
-    if (isNaN(val)) return;
-    localStorage.setItem(STARTING_CASH_KEY, String(val));
-  };
-
-  const validateEntryForm = (f: EntryData): string => {
-    if (!f.type) return 'Select a type.';
-    if (!f.amount || f.amount <= 0) return 'Amount must be greater than 0.';
-    if (!f.date) return 'Select a date.';
-    if (!f.category.trim()) return 'Enter a category.';
-    return '';
-  };
-
-  const handleAdd = async (e: FormEvent) => {
-    e.preventDefault();
-    const msg = validateEntryForm(form);
-    if (msg) { setFormError(msg); return; }
-    setFormError('');
-    setSubmitting(true);
-    try {
-      const created = await entriesApi.create(form);
-      setEntries(prev => [created, ...prev]);
-      setForm(emptyForm());
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to add entry.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const openEdit = (entry: Entry) => {
-    setEditEntry(entry);
-    setEditForm({
-      type: entry.type,
-      amount: entry.amount,
-      date: entry.date.slice(0, 10),
-      category: entry.category,
-      description: entry.description,
-    });
-    setEditError('');
-  };
-
-  const handleEditSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!editEntry) return;
-    const msg = validateEntryForm(editForm);
-    if (msg) { setEditError(msg); return; }
-    setEditError('');
-    setEditSubmitting(true);
-    try {
-      const updated = await entriesApi.update(editEntry.id, editForm);
-      setEntries(prev => prev.map(en => en.id === updated.id ? updated : en));
-      setEditEntry(null);
-    } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Failed to update entry.');
-    } finally {
-      setEditSubmitting(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    setDeletingId(id);
-    try {
-      await entriesApi.delete(id);
-      setEntries(prev => prev.filter(e => e.id !== id));
-    } catch {
-      // silent – could show a toast
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const totalInflow = entries.filter(e => e.type === 'inflow').reduce((s, e) => s + e.amount, 0);
+  const totalInflow  = entries.filter(e => e.type === 'inflow').reduce((s, e) => s + e.amount, 0);
   const totalOutflow = entries.filter(e => e.type === 'outflow').reduce((s, e) => s + e.amount, 0);
+  const netCash = startingCash + totalInflow - totalOutflow;
+
+  // Monthly chart data
+  const months = getLastMonths(6);
+  const monthlyData: MonthData[] = months.map(m => ({
+    label: m.label,
+    inflow:  entries.filter(e => e.type === 'inflow'  && getMonthKey(e.date) === m.key).reduce((s, e) => s + e.amount, 0),
+    outflow: entries.filter(e => e.type === 'outflow' && getMonthKey(e.date) === m.key).reduce((s, e) => s + e.amount, 0),
+  }));
+
+  // Category breakdown (outflows)
+  const catMap: Record<string, number> = {};
+  entries.filter(e => e.type === 'outflow').forEach(e => {
+    catMap[e.category] = (catMap[e.category] || 0) + e.amount;
+  });
+  const categories = Object.entries(catMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const catMax = categories[0]?.[1] || 1;
+  const CAT_COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e'];
+
+  // Recent entries
+  const recent = [...entries]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 6);
+
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  });
+
+  const inflowCount  = entries.filter(e => e.type === 'inflow').length;
+  const outflowCount = entries.filter(e => e.type === 'outflow').length;
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-slate-500 mt-1 text-sm">Manage your cash flow entries</p>
-      </div>
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Starting Cash</p>
-            <div className="p-1.5 bg-slate-100 rounded-lg">
-              <DollarSign className="w-4 h-4 text-slate-600" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-slate-900">
-            {startingCash ? fmt(parseFloat(startingCash) || 0) : '—'}
-          </p>
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
+          <p className="text-sm text-slate-400 mt-0.5">{today}</p>
         </div>
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Total Inflow</p>
-            <div className="p-1.5 bg-green-50 rounded-lg">
-              <TrendingUp className="w-4 h-4 text-green-600" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-green-600">{fmt(totalInflow)}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Total Outflow</p>
-            <div className="p-1.5 bg-red-50 rounded-lg">
-              <TrendingDown className="w-4 h-4 text-red-600" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-red-600">{fmt(totalOutflow)}</p>
+        <div className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full ${
+          loading ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+        }`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${loading ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
+          {loading ? 'Loading data…' : `${entries.length} entries`}
         </div>
       </div>
 
-      {/* Section A: Starting Cash */}
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-6 mb-6">
-        <h2 className="text-base font-semibold text-slate-800 mb-4">Starting Cash Balance</h2>
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-xs">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-            <input
-              type="number"
-              value={startingCash}
-              onChange={e => setStartingCash(e.target.value)}
-              placeholder="0.00"
-              min="0"
-              step="0.01"
-              className="w-full pl-7 pr-3.5 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-            />
-          </div>
-          <button
-            onClick={saveStartingCash}
-            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            Save
-          </button>
-        </div>
+      {/* ── Summary Cards ── */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <SummaryCard
+          label="Starting Cash"
+          value={fmt(startingCash)}
+          sub="Opening balance"
+          icon={<DollarSign className="w-4 h-4" />}
+          iconBg="bg-slate-100"   iconColor="text-slate-600"
+          accent="border-l-slate-400"
+        />
+        <SummaryCard
+          label="Total Inflow"
+          value={fmt(totalInflow)}
+          sub={`${inflowCount} transaction${inflowCount !== 1 ? 's' : ''}`}
+          icon={<TrendingUp className="w-4 h-4" />}
+          iconBg="bg-emerald-50"  iconColor="text-emerald-600"
+          accent="border-l-emerald-500"
+          valueColor="text-emerald-700"
+        />
+        <SummaryCard
+          label="Total Outflow"
+          value={fmt(totalOutflow)}
+          sub={`${outflowCount} transaction${outflowCount !== 1 ? 's' : ''}`}
+          icon={<TrendingDown className="w-4 h-4" />}
+          iconBg="bg-rose-50"     iconColor="text-rose-600"
+          accent="border-l-rose-500"
+          valueColor="text-rose-600"
+        />
+        <SummaryCard
+          label="Net Cash Flow"
+          value={fmt(netCash)}
+          sub={netCash >= 0 ? '↑ Positive balance' : '↓ Negative balance'}
+          icon={<Wallet className="w-4 h-4" />}
+          iconBg={netCash >= 0 ? 'bg-indigo-50' : 'bg-rose-50'}
+          iconColor={netCash >= 0 ? 'text-indigo-600' : 'text-rose-600'}
+          accent={netCash >= 0 ? 'border-l-indigo-500' : 'border-l-rose-500'}
+          valueColor={netCash >= 0 ? 'text-indigo-600' : 'text-rose-600'}
+        />
       </div>
 
-      {/* Section B: Add Entry Form */}
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-6 mb-6">
-        <h2 className="text-base font-semibold text-slate-800 mb-4">Add Entry</h2>
-        <form onSubmit={handleAdd}>
-          <div className="grid grid-cols-2 gap-4 mb-4">
+      {/* ── Charts Row ── */}
+      <div className="grid grid-cols-3 gap-4">
+
+        {/* Monthly Bar Chart */}
+        <div className="col-span-2 bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+          <div className="flex items-start justify-between mb-4">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Type</label>
-              <select
-                value={form.type}
-                onChange={e => setForm(f => ({ ...f, type: e.target.value as 'inflow' | 'outflow' }))}
-                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition bg-white"
-              >
-                <option value="inflow">Inflow</option>
-                <option value="outflow">Outflow</option>
-              </select>
+              <h2 className="text-sm font-semibold text-slate-800">Monthly Cash Flow</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Last 6 months — inflow vs outflow</p>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Amount</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                <input
-                  type="number"
-                  value={form.amount || ''}
-                  onChange={e => setForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
-                  placeholder="0.00"
-                  min="0.01"
-                  step="0.01"
-                  className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Date</label>
-              <input
-                type="date"
-                value={form.date}
-                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Category</label>
-              <input
-                type="text"
-                list="category-list"
-                value={form.category}
-                onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                placeholder="e.g. Sales, Rent..."
-                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-              />
-              <datalist id="category-list">
-                {CATEGORIES.map(c => <option key={c} value={c} />)}
-              </datalist>
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Description</label>
-              <input
-                type="text"
-                value={form.description}
-                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                placeholder="Optional note..."
-                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-              />
+            <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded bg-emerald-500 inline-block opacity-88" />
+                Inflow
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded bg-rose-500 inline-block opacity-88" />
+                Outflow
+              </span>
             </div>
           </div>
 
-          {formError && (
-            <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3.5 py-2.5 mb-4">
-              {formError}
+          {loading ? (
+            <div className="flex items-center justify-center h-[160px]">
+              <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
             </div>
+          ) : (
+            <BarChart data={monthlyData} />
           )}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            {submitting ? 'Adding...' : 'Add Entry'}
-          </button>
-        </form>
-      </div>
-
-      {/* Section C: Entries Table */}
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-800">Entries</h2>
-          <span className="text-xs text-slate-400">{entries.length} total</span>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-7 h-7 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm text-slate-400">Loading entries...</p>
+        {/* Category Breakdown */}
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex flex-col">
+          <h2 className="text-sm font-semibold text-slate-800">Outflow by Category</h2>
+          <p className="text-xs text-slate-400 mt-0.5 mb-4">Top spending areas</p>
+
+          {loading ? (
+            <div className="flex items-center justify-center flex-1">
+              <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
             </div>
-          </div>
-        ) : error ? (
-          <div className="px-6 py-8 text-center">
-            <p className="text-sm text-red-600">{error}</p>
-            <button onClick={loadEntries} className="mt-3 text-sm text-indigo-600 hover:underline">
-              Try again
-            </button>
-          </div>
-        ) : entries.length === 0 ? (
-          <div className="px-6 py-16 text-center">
-            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Plus className="w-6 h-6 text-slate-400" />
+          ) : categories.length === 0 ? (
+            <div className="flex items-center justify-center flex-1 text-xs text-slate-400">
+              No outflows recorded
             </div>
-            <p className="text-sm font-medium text-slate-600">No entries yet</p>
-            <p className="text-xs text-slate-400 mt-1">Add your first inflow or expense to get started</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Description</th>
-                  <th className="px-6 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {entries.map((entry, i) => (
-                  <tr key={entry.id ?? i} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 text-slate-600 whitespace-nowrap">{fmtDate(entry.date)}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        entry.type === 'inflow'
-                          ? 'bg-green-50 text-green-700'
-                          : 'bg-red-50 text-red-700'
-                      }`}>
-                        {entry.type === 'inflow' ? '↑' : '↓'} {entry.type}
-                      </span>
-                    </td>
-                    <td className={`px-6 py-4 font-medium whitespace-nowrap ${
-                      entry.type === 'inflow' ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {entry.type === 'inflow' ? '+' : '-'}{fmt(entry.amount)}
-                    </td>
-                    <td className="px-6 py-4 text-slate-600">{entry.category}</td>
-                    <td className="px-6 py-4 text-slate-400 max-w-xs truncate">{entry.description || '—'}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1 justify-end">
-                        <button
-                          onClick={() => openEdit(entry)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                          title="Edit"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(entry.id)}
-                          disabled={deletingId === entry.id}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                          title="Delete"
-                        >
-                          {deletingId === entry.id
-                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            : <Trash2 className="w-3.5 h-3.5" />
-                          }
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+          ) : (
+            <>
+              <div className="space-y-3 flex-1">
+                {categories.map(([cat, val], i) => (
+                  <div key={cat}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-slate-700 truncate max-w-[110px]">{cat}</span>
+                      <span className="text-xs text-slate-500 ml-1 flex-shrink-0">{fmt(val)}</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${(val / catMax) * 100}%`, backgroundColor: CAT_COLORS[i] }}
+                      />
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between text-xs">
+                <span className="text-slate-500">Total outflows</span>
+                <span className="font-semibold text-rose-600">{fmtFull(totalOutflow)}</span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Net Cash Trend + Recent Activity ── */}
+      <div className="grid grid-cols-3 gap-4">
+
+        {/* Net Cash Trend card */}
+        {entries.length >= 2 && (
+          <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+            <h2 className="text-sm font-semibold text-slate-800 mb-0.5">Net Cash Trend</h2>
+            <p className="text-xs text-slate-400 mb-3">Cumulative balance over time</p>
+            <Sparkline entries={entries} startingCash={startingCash} />
+            <p className={`text-base font-bold mt-2 ${netCash >= startingCash ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {fmtFull(netCash)}
+            </p>
+            <p className="text-xs text-slate-400">Current balance</p>
           </div>
         )}
-      </div>
 
-      {/* Edit Modal */}
-      {editEntry && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h3 className="text-base font-semibold text-slate-900">Edit Entry</h3>
-              <button
-                onClick={() => setEditEntry(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
+        {/* Recent Activity */}
+        <div className={`bg-white rounded-xl border border-slate-100 shadow-sm ${entries.length >= 2 ? 'col-span-2' : 'col-span-3'}`}>
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-slate-400" />
+              <h2 className="text-sm font-semibold text-slate-800">Recent Activity</h2>
             </div>
-            <form onSubmit={handleEditSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Type</label>
-                  <select
-                    value={editForm.type}
-                    onChange={e => setEditForm(f => ({ ...f, type: e.target.value as 'inflow' | 'outflow' }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="inflow">Inflow</option>
-                    <option value="outflow">Outflow</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Amount</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                    <input
-                      type="number"
-                      value={editForm.amount || ''}
-                      onChange={e => setEditForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
-                      min="0.01"
-                      step="0.01"
-                      className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Date</label>
-                  <input
-                    type="date"
-                    value={editForm.date}
-                    onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Category</label>
-                  <input
-                    type="text"
-                    list="edit-category-list"
-                    value={editForm.category}
-                    onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <datalist id="edit-category-list">
-                    {CATEGORIES.map(c => <option key={c} value={c} />)}
-                  </datalist>
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Description</label>
-                  <input
-                    type="text"
-                    value={editForm.description}
-                    onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              {editError && (
-                <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3.5 py-2.5">
-                  {editError}
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEditEntry(null)}
-                  className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={editSubmitting}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-lg transition-colors"
-                >
-                  {editSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {editSubmitting ? 'Saving...' : 'Save changes'}
-                </button>
-              </div>
-            </form>
+            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+              {Math.min(6, recent.length)} of {entries.length}
+            </span>
           </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : recent.length === 0 ? (
+            <div className="py-12 text-center">
+              <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-2">
+                <TrendingUp className="w-5 h-5 text-indigo-400" />
+              </div>
+              <p className="text-xs font-medium text-slate-600">No entries yet</p>
+              <p className="text-xs text-slate-400 mt-1">Go to Entries to add your first transaction</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {recent.map((entry, i) => (
+                <div key={entry.id ?? i} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    entry.type === 'inflow' ? 'bg-emerald-50' : 'bg-rose-50'
+                  }`}>
+                    {entry.type === 'inflow'
+                      ? <TrendingUp  className="w-3.5 h-3.5 text-emerald-600" />
+                      : <TrendingDown className="w-3.5 h-3.5 text-rose-600" />
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">
+                      {entry.description || entry.category}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {entry.category} · {fmtDate(entry.date)}
+                    </p>
+                  </div>
+                  <span className={`text-sm font-semibold flex-shrink-0 ${
+                    entry.type === 'inflow' ? 'text-emerald-600' : 'text-rose-600'
+                  }`}>
+                    {entry.type === 'inflow' ? '+' : '-'}{fmtFull(entry.amount)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

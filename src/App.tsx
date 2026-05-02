@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
+import Entries from './pages/Entries';
 import Forecast from './pages/Forecast';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -51,6 +52,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/entries"
+            element={
+              <ProtectedRoute>
+                <Entries />
               </ProtectedRoute>
             }
           />
