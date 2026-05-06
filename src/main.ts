@@ -11,7 +11,7 @@ if (started) {
 updateElectronApp({
   updateSource: {
     type: UpdateSourceType.ElectronPublicUpdateService,
-    repo: 'esphere-tech/cash-flow-forecast',
+    repo: 'musa-automations/cash-flow-forecast',
   },
   updateInterval: '1 hour',
   notifyUser: true,

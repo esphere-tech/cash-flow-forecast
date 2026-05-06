@@ -20,7 +20,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/esphere-tech/cash-flow-forecast"
+    "url": "https://github.com/musa-automations/cash-flow-forecast"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",

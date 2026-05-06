@@ -13,7 +13,7 @@ const publishers = githubToken
   ? [
       new PublisherGithub({
         repository: {
-          owner: 'esphere-tech',
+          owner: 'musa-automations',
           name: 'cash-flow-forecast',
         },
         prerelease: false,
