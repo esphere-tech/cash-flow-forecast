@@ -12,3 +12,10 @@ body {
   -webkit-font-smoothing: antialiased;
   background-color: #f8fafc;
 }
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}

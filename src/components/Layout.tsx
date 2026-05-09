@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, TrendingUp, LogOut, DollarSign, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, LogOut, DollarSign, ClipboardList, PlugZap } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -20,7 +20,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }`;
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex h-screen overflow-hidden bg-slate-50">
 
       {/* ── Sidebar ── */}
       <aside className="w-60 flex-shrink-0 bg-slate-900 flex flex-col">
@@ -50,9 +50,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <ClipboardList className="w-4 h-4 flex-shrink-0" />
               Entries
             </NavLink>
-            <NavLink to="/forecast" className={navClass}>
-              <TrendingUp className="w-4 h-4 flex-shrink-0" />
-              Forecast
+            <NavLink to="/integrations" className={navClass}>
+              <PlugZap className="w-4 h-4 flex-shrink-0" />
+              Integrations
             </NavLink>
           </nav>
         </div>
@@ -86,7 +86,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ── Main content ── */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="min-w-0 flex-1 overflow-y-auto">
         {children}
       </main>
     </div>

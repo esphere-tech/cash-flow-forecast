@@ -2,6 +2,7 @@ import React, { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { DollarSign, Loader2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import PasswordField from '../components/PasswordField';
 
 export default function Login() {
   const { login } = useApp();
@@ -59,19 +60,13 @@ export default function Login() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-                autoComplete="current-password"
-              />
-            </div>
+            <PasswordField
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              placeholder="••••••••"
+              autoComplete="current-password"
+            />
 
             {error && (
               <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3.5 py-2.5">

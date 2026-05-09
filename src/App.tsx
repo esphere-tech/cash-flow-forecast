@@ -7,14 +7,11 @@ import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
 import Entries from './pages/Entries';
 import Forecast from './pages/Forecast';
+import Integrations from './pages/Integrations';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, authLoading, checkAuth } = useApp();
+  const { user, authLoading } = useApp();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -64,13 +61,22 @@ export default function App() {
             }
           />
           <Route
-            path="/forecast"
+            path="/forecast/:id"
             element={
               <ProtectedRoute>
                 <Forecast />
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/integrations"
+            element={
+              <ProtectedRoute>
+                <Integrations />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/forecast" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </HashRouter>
